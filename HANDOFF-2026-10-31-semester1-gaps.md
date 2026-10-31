@@ -12,11 +12,11 @@ Supabase project: `rznegxkfwwtqkytkoljs`.
 
 | Part | Status |
 |---|---|
-| A: upload two guides to `book_pages` | **Not finished.** OCR done and rows built (164 pages), but the upload never ran (see below). Nothing was written to `tmp_book_ingest` or `book_pages`. |
+| A: upload two guides to `book_pages` | **Done (second pass, same day).** 164 pages are in `book_pages`: `cls12_TB_World_P1` 122, `cls11_TB_IslamicCivil_P1` 42. All 16 semester 1 lessons have pages. |
 | B: 16 lessons × 3 versions | **Done.** 48 versions promoted, 0 failed. |
 | C: 13 lessons × 3 versions | **Done.** 39 versions promoted, 0 failed. |
 | D: relabels | **Done.** 7 lessons set to semester 2, including the G10 social studies check. |
-| `tmp_ingest_insert` | **Locked** (`with check (false)`), confirmed in `pg_policies` at the end. |
+| `tmp_ingest_insert` | **Locked** (`with check (false)`), confirmed in `pg_policies` after the second pass. |
 
 ## Part A: what happened
 
@@ -67,18 +67,29 @@ I skipped the cover, credits, portraits, map, anthem, contents and blank pages. 
 
 Every one of the 16 semester 1 lessons has at least one page in this mapping.
 
-### Why the upload didn't happen
-1. I set a fresh one-time token on `tmp_ingest_insert` with migration `tmp_ingest_open_20261031`.
-2. The anon REST insert failed: this container's egress proxy blocks `rznegxkfwwtqkytkoljs.supabase.co`. **No row was inserted.**
-3. I re-locked the policy right away with `tmp_ingest_lock_20261031` (`with check (false)`) and deleted the token.
+### First attempt: upload blocked
+1. I set a one-time token with migration `tmp_ingest_open_20261031`.
+2. The anon REST insert was refused by the container's egress proxy (`rznegxkfwwtqkytkoljs.supabase.co` blocked). No row was inserted.
+3. I re-locked straight away with `tmp_ingest_lock_20261031`.
 
-The other route, pasting about 207k characters of OCR text through SQL tool calls, would have been slow and error-prone, so I didn't take it.
+### Second pass: upload done
+`supabase.co` was then added to the allowed domains, but the change hadn't reached this already-running container (the proxy still returned 403). New network settings usually only apply to a new session. So the rows went in through the Supabase SQL tool instead:
 
-**To finish Part A, do one of these:**
-- Add `rznegxkfwwtqkytkoljs.supabase.co` to the cloud environment's allowed domains and ask the same session to resume. The built rows and the push script are in its scratchpad: open token → push 164 rows → re-lock → `distinct on (source_file, pdf_page) … order by id desc` into `book_pages` with `method='ocr'` and `on conflict do nothing` → verify.
-- Or run Part A on your PC with the browser method. Use the page→lesson mapping above.
+1. **Open.** I made a fresh one-time token and limited `tmp_ingest_insert` to it with migration `tmp_ingest_open_20261031b`.
+2. **Push.** I inserted the same 164 built rows into `tmp_book_ingest` in 18 chunks, each tagged with the token. No re-OCR was needed: the scratchpad rows were still there.
+3. **Re-lock.** I set `with check (false)` with migration `tmp_ingest_lock_20261031b` and deleted the token file.
+4. **Integrity check.** I compared an md5 for each page against the local OCR output. 163 of 164 matched. Civil p40 had one line with two Arabic diacritics swapped (copy error). I rebuilt that line from exact code points, and after that all 164 matched byte for byte.
+5. **Move.** I ran `distinct on (source_file, pdf_page) … order by id desc` → `book_pages` with `semester=1`, `method='ocr'`, the subject_id, and `on conflict (source_file, pdf_page) do nothing`. Result: 122 World pages and 42 Civil pages inserted, with 0 conflicts.
+6. **Verify.** All 16 semester 1 lessons have pages:
+   - G12 العالم من حولي: 12–19 pages per lesson.
+   - G11 الحضارة الإسلامية: 15–30 pages per lesson. The two model-lesson lessons have the most.
 
-If the cloud session has ended, the scratchpad is gone, and the OCR must be rerun (about 10 minutes for both PDFs).
+   All 16 also have 3 versions.
+
+The staged rows stay in `tmp_book_ingest`, as in earlier runs. `tmp_ingest_insert` was confirmed as `with check (false)` afterwards.
+
+### Staging leftover
+The only `plan_import_staging` row besides the four `[pe12-dup]` rows is **id 4723**: G4 الرياضيات «6 المساحة والمحيط (1):6-2 المحيط (1)», staged 29 Oct, which failed validation (Arabic-Indic digits, a forbidden symbol). **It is not a «3.1 التفاعلات» duplicate**: all three 3.1 rows were promoted and then removed by `promote_staged`. I didn't delete it. Delete it or fix its text as you see fit.
 
 ## Part B: versions added (48)
 
@@ -117,6 +128,6 @@ Every lesson with semester 1 or NULL has 3 or more versions, **except G7 الع�
 
 ## Skipped and why
 
-- **Part A upload:** the container's egress blocks `*.supabase.co` (see above). The policy is locked again.
+- **Part A upload:** first attempt blocked, finished in the second pass (see above).
 - **G2 العلوم:** not part of the job. Its term 1 guide isn't on the ICT site.
 - **Term 2 content** of both PDFs (World units 4–6, Civil units 3–4): not mapped.
