@@ -16,7 +16,11 @@ Supabase project: `rznegxkfwwtqkytkoljs`.
 | B: 16 lessons × 3 versions | **Done.** 48 versions promoted, 0 failed. |
 | C: 13 lessons × 3 versions | **Done.** 39 versions promoted, 0 failed. |
 | D: relabels | **Done.** 7 lessons set to semester 2, including the G10 social studies check. |
-| `tmp_ingest_insert` | **Locked** (`with check (false)`), confirmed in `pg_policies` after the second pass. |
+| A2: real G12 teacher guide (2019) | **Done.** 141 pages as `cls12_TB_World_2019_P1`, `book='teacher'`, semester 1. |
+| G12 rewrite from the 2019 guide | **Done.** All 27 versions (9 lessons × 3) rewritten in place. |
+| G7 العلوم «أسئلة نهاية الوحدة» | **Done.** v2 and v3 added for all 6 lessons; each has 3 versions. |
+| Staging cleanup (5 rows) | **Not done.** The DELETE waits on a confirmation prompt that timed out twice. See below. |
+| `tmp_ingest_insert` | **Locked** (`with check (false)`), confirmed in `pg_policies` after each pass. |
 
 ## Part A: what happened
 
@@ -89,7 +93,87 @@ Every one of the 16 semester 1 lessons has at least one page in this mapping.
 The staged rows stay in `tmp_book_ingest`, as in earlier runs. `tmp_ingest_insert` was confirmed as `with check (false)` afterwards.
 
 ### Staging leftover
+(First note, kept for history. See "Staging cleanup" below for the current state.)
+
 The only `plan_import_staging` row besides the four `[pe12-dup]` rows is **id 4723**: G4 الرياضيات «6 المساحة والمحيط (1):6-2 المحيط (1)», staged 29 Oct, which failed validation (Arabic-Indic digits, a forbidden symbol). **It is not a «3.1 التفاعلات» duplicate**: all three 3.1 rows were promoted and then removed by `promote_staged`. I didn't delete it. Delete it or fix its text as you see fit.
+
+## Part A2: the real G12 teacher guide (2019)
+
+You uploaded the real G12 «العالم من حولي» teacher guide (2019, term 1 only) in three parts, split from one 262-page PDF. Part 1 skips original pages 1 and 4 (cover and portrait).
+
+- **OCR.** The PDF text layer is garbled, so every page was OCRed (pymupdf 300 dpi, tesseract `ara`), with the same cleanup as before.
+- **Numbering.** `pdf_page` is the **original** PDF page number. Printed page = PDF page − 1.
+- **Skipped.** Pages 2, 3, 5, 6 and 7 (title, credits, contents).
+- **Upload.** 141 rows went through a fresh one-time token on `tmp_ingest_insert` (migrations `tmp_ingest_open_20261031c` / `tmp_ingest_lock_20261031c`) by anon REST, since `supabase.co` was reachable by then.
+  - The aggregate md5 `d8e4b67c5972f0fd75e20d8bb4ae4334` matched locally and in the DB.
+  - Rows were moved to `book_pages` with the same `distinct on … on conflict do nothing` pattern: 141 inserted.
+  - The policy was re-locked to `with check (false)` and the token file deleted.
+- **Placement.** The rows sit next to the existing student-book rows (`cls12_TB_World_P1`).
+
+**`cls12_TB_World_2019_P1`: 141 pages, `book='teacher'`, `semester=1`**
+
+| PDF pages | Mapped to | `unit_number` |
+|---|---|---|
+| 8–26 | General teaching guidance → all 9 lessons | null |
+| 27, 60, 61 | Unit 1 opener and closing pages → all 3 unit 1 lessons | 1 |
+| 28–39 / 40–50 / 51–59 | إنجازات الأوائل / ثورات كبرى / عالم الغد | 1 |
+| 62, 109 | Unit 2 opener and closing → all 3 unit 2 lessons | 2 |
+| 63–75 / 76–91 / 92–108 | الطاقة حياة العالم / النفط / الطاقة المتجددة | 2 |
+| 110, 146–148 | Unit 3 opener and closing → all 3 unit 3 lessons | 3 |
+| 111–119 / 120–130 / 131–145 | الثقافة الإنسانية / الأقاليم الثقافية / الثقافة الوطنية العمانية | 3 |
+
+Each of the 9 lessons now has 31–38 guide pages, plus its 12–19 student-book pages.
+
+### G12 rewrite from the guide
+
+All 27 versions were rewritten from the 2019 guide.
+- **Content.** Each lesson follows the guide's objectives in order, its number of periods, its prior-learning opener and its per-objective activities. Each also includes the guide's enrichment and remedial activities.
+- **Strategies.** v1 follows the guide's own strategy (discussion, debate and role-play; essential questions for 3.1; the systemic approach for 3.3). v2 is cooperative learning and v3 is problem solving or inquiry.
+- **Method.** Rows were staged and validated, then written into the existing `lesson_plan_versions` rows with an UPDATE. That keeps the ids and `source`. `promote_staged(12)` then cleared the staging rows: inserted 0, failed 0, `missing_lesson = 4` (the old `[pe12-dup]` rows).
+- **Verified.** 3 versions per lesson, 300–417 words. Every version states its period count, and they match the guide:
+
+| Lesson | Periods |
+|---|---|
+| 1.1, 1.2, 1.3 | 3 each |
+| 2.1, 2.2, 2.3 | 4 each |
+| 3.1 | 4 |
+| 3.2 | 3 |
+| 3.3 | 4 |
+
+- **OCR quirk.** In this guide's OCR the digit 3 often comes out as `"` or `”`. The period counts were checked against the page images.
+
+The Part B notes below describe the first G12 versions (written from the student book). Those have now been replaced.
+
+## G7 العلوم «أسئلة نهاية الوحدة»: v2 and v3 (12 versions)
+
+Written the same way as G8:
+- **v2:** cooperative learning or stations.
+- **v3:** problem solving.
+
+Each is built on that unit's actual end-of-unit questions in `cls7_Student_P1_science`:
+
+| Lesson | Pages | Topic |
+|---|---|---|
+| 1-11 | 36 | Flower parts, fruit, seed dispersal |
+| 2-8 | 52 | Heating graph, best-fit line, anomalous reading, constant temperature |
+| 3-15 | 81–82 | Energy stores and transfers, fuels, solar cell, conduction/convection/radiation, evaporation |
+| 4-9 | 99–100 | Cell parts, yoghurt and pH, yeast dough investigation |
+| 5-10 | 120 | Rock fragment deposition, dual-axis graph |
+| 6-7 | 135–136 | Sunrise, Earth's rotation, solar system, reflected light, stars in January vs July |
+
+`promote_staged(7)`: submitted 12, inserted 12, failed 0, missing 0. All 6 lessons were verified at versions 1, 2 and 3.
+
+## Staging cleanup
+
+The 5 leftover rows are still in `plan_import_staging`:
+- 4723: the G4 maths row that fails validation.
+- 5836, 5887, 5888, 5889: «خطط اللعب في كرة القدم [pe12-dup]».
+
+The `delete … where id in (4723,5836,5887,5888,5889)` triggers a confirmation prompt from the Supabase server, and it timed out unanswered twice. It needs to be approved, or run by hand:
+
+```sql
+delete from plan_import_staging where id in (4723,5836,5887,5888,5889);
+```
 
 ## Part B: versions added (48)
 
@@ -124,7 +208,7 @@ Each one is logged in `semester2_relabel_20261026` with a `why` starting «2026-
 
 ## Gap check (end of run)
 
-Every lesson with semester 1 or NULL has 3 or more versions, **except G7 العلوم: 6 «أسئلة نهاية الوحدة» lessons with only 1 version each**: 1-11, 2-8, 3-15, 4-9, 5-10, 6-7. They weren't in this job's list, so I didn't touch them. They need v2 and v3, and can be done the same way as the G8 end-of-unit lessons.
+Every lesson with semester 1 or NULL has 3 or more versions. The 6 G7 العلوم «أسئلة نهاية الوحدة» lessons were the last gap. They had 1 version each and now have 3 (see above).
 
 ## Skipped and why
 
